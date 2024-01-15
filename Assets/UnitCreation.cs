@@ -37,7 +37,7 @@ public class UnitCreation : MonoBehaviour
         unitScript.selectedMaterial = selectedMaterial;
         unitScript.notSelectedMaterial = notSelectedMaterial;
         unitScript.rotationAnglePerSec = 1440;
-        unitScript.timeToRecordPos = 1;
+        unitScript.timeToRecordPos = 0.5f;
 
         Rigidbody unitRigidBody = unit.AddComponent<Rigidbody>();
         unitRigidBody.constraints = RigidbodyConstraints.FreezeAll;

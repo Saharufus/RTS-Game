@@ -19,6 +19,7 @@ public class Unit : MonoBehaviour
     public bool isEffectedBySlope;
     UnitSelection unitSelection;
     bool shouldMove = false;
+    bool isMoving = false;
     int unitId;
     public bool drawDirections;
     bool unitIsSelected = false;
@@ -28,6 +29,10 @@ public class Unit : MonoBehaviour
     Vector3 lastRecordedPos;
     float timeFromLastRecordedPos = 0;
     public float timeToRecordPos;
+    int failsToMove = 0;
+    Vector3 oldMoveVector = Vector3.zero;
+    Vector3 moveVector = Vector3.zero;
+    bool updateAfterStart = true;
 
     void Start()
     {
@@ -35,7 +40,7 @@ public class Unit : MonoBehaviour
         unitId = gameObject.GetInstanceID();
         pathFind = gameManager.GetComponent<PathFind>();
         unitBody = gameObject.GetComponent<Rigidbody>();
-        unitBody.constraints = RigidbodyConstraints.FreezeAll;
+        unitBody.constraints = RigidbodyConstraints.FreezeRotation;// | RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezePositionZ;
         gameStarted = true;
         lastRecordedPos = transform.position;
         minStopMovingRadius = Mathf.Max(transform.localScale.x, transform.localScale.z) * 1.5f;
@@ -43,6 +48,11 @@ public class Unit : MonoBehaviour
 
     void Update()
     {
+        if (updateAfterStart)
+        {
+            updateAfterStart = false;
+            UpdateWalkableGridAfterStoped();
+        }
         unitIsSelected = unitSelection.selectedDict.ContainsValue(gameObject);
         if (unitIsSelected)
         {
@@ -55,6 +65,7 @@ public class Unit : MonoBehaviour
             renderer.material = notSelectedMaterial;
         }
         shouldMove = pathFind.directionGridsDict.ContainsKey(unitId);
+        isMoving = unitBody.velocity != Vector3.zero;
         if (shouldMove)
         {
             MoveOnDirectionGrid();
@@ -79,43 +90,34 @@ public class Unit : MonoBehaviour
 
         unitBody.constraints = RigidbodyConstraints.FreezeRotation;
         int[] rowCol = pathFind.GetRowColFromPos(transform.position);
-        Vector3 moveVector = pathFind.directionGridsDict[unitId][rowCol[0], rowCol[1]];
+        Vector3 newMoveVector = pathFind.directionGridsDict[unitId][rowCol[0], rowCol[1]];
+        if (newMoveVector != moveVector)
+        {
+            oldMoveVector = moveVector;
+            moveVector = newMoveVector;
+        }
 
         // move unit
         unitBody.velocity = moveVector * movingSpeedPixelPerSecond * pathFind.speedModifierGrid[rowCol[0], rowCol[1]];
 
-        if (distFromLastRecordedPos <= minStopMovingRadius)
+        if (moveVector == Vector3.zero || failsToMove >= 8)
         {
             // delete the direction grid of this unit
             shouldMove = false;
-            unitBody.constraints = RigidbodyConstraints.FreezeAll;
+            unitBody.constraints = RigidbodyConstraints.FreezeRotation | RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezePositionZ;
             pathFind.directionGridsDict.Remove(unitId);
+            failsToMove = 0;
+            UpdateWalkableGridAfterStoped();
+        }
+        else if (distFromLastRecordedPos <= minStopMovingRadius && moveVector != Vector3.zero)
+        {
+            unitBody.velocity = oldMoveVector * movingSpeedPixelPerSecond * pathFind.speedModifierGrid[rowCol[0], rowCol[1]];
+            failsToMove++;
         }
         else
         {
             // rotate to diraction
             transform.LookAt(transform.position + moveVector);
-            // transform.rotation = Quaternion.Euler(0, Mathf.Asin(internalMoveVector.x/internalMoveVector.magnitude) * rotationAnglePerSec * Time.deltaTime, 0) * transform.rotation;
-            
-            // make orthogonal to the ground *** not working correctly
-            if (isEffectedBySlope)
-            {
-                float dydx = (pathFind.positionGrid[rowCol[0], rowCol[1] + Mathf.RoundToInt(moveVector.x)].y - pathFind.positionGrid[rowCol[0], rowCol[1]].y) / pathFind.stepSize;
-                float dydz = (pathFind.positionGrid[rowCol[0] + Mathf.RoundToInt(moveVector.z), rowCol[1]].y - pathFind.positionGrid[rowCol[0], rowCol[1]].y) / pathFind.stepSize;
-                float slopeAngleX = Mathf.Atan(dydx) * 180 / Mathf.PI;
-                float slopeAngleZ = Mathf.Atan(dydz) * 180 / Mathf.PI;
-                if (Double.IsNaN(slopeAngleX))
-                {
-                    slopeAngleX = 0;
-                }
-                if (Double.IsNaN(slopeAngleZ))
-                {
-                    slopeAngleZ = 0;
-                }
-                Vector3 orthogonalVector = Quaternion.AngleAxis(slopeAngleX, Vector3.forward) * Quaternion.AngleAxis(slopeAngleZ, Vector3.right) * Vector3.up;
-                
-                transform.rotation = Quaternion.Euler(100*Vector3.Cross(orthogonalVector, -transform.up)) * transform.rotation;
-            }
         }
     }
 
@@ -137,13 +139,41 @@ public class Unit : MonoBehaviour
         return vectorsToAdjust;
     }
 
-    void AdjustDistFromGround(int row, int col)
+    void UpdateWalkableGridAfterStoped()
     {
-        transform.position = new Vector3(transform.position.x, (pathFind.positionGrid[row, col].y + transform.localScale.y / 2), transform.position.z);
+        int radiusToCheck = Mathf.RoundToInt(Mathf.Max(transform.localScale.x, transform.localScale.z) / 2) + 1;
+        for (int rowOffset = -radiusToCheck; rowOffset <= radiusToCheck; rowOffset++)
+        {
+            for (int colOffset = -radiusToCheck; colOffset <= radiusToCheck; colOffset++)
+            {
+                int[] rowCol = pathFind.GetRowColFromPos(transform.position);
+                int newRow = rowCol[0] + rowOffset;
+                int newCol = rowCol[1] + colOffset;
+                Vector3 position = pathFind.GetPosFromRowCol(newRow, newCol, 100);
+                if (Physics.Raycast(position, Vector3.down, out RaycastHit hit, Mathf.Infinity, 1 << gameObject.layer))
+                {
+                    pathFind.walkableGrid[newRow, newCol] = false;
+                }
+            }
+        }
     }
-    void AdjustNormalToGround()
-    {
 
+    void OnCollisionEnter(Collision collision)
+    {
+        if (collision.transform.tag == transform.tag)
+        {
+            Debug.Log("HI!!!");
+            unitBody.constraints = RigidbodyConstraints.FreezeRotation;
+        }
+    }
+
+    void OnCollisionExit(Collision collision)
+    {
+        if (collision.transform.tag == transform.tag)
+        {
+            Debug.Log("OK");
+            unitBody.constraints = RigidbodyConstraints.FreezeRotation | RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezePositionZ;
+        }
     }
 
     void OnDrawGizmos()
