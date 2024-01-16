@@ -16,7 +16,6 @@ public class Unit : MonoBehaviour
     public float rotationAnglePerSec;
     public Material selectedMaterial;
     public Material notSelectedMaterial;
-    public bool isEffectedBySlope;
     UnitSelection unitSelection;
     bool shouldMove = false;
     bool isMoving = false;
@@ -33,7 +32,6 @@ public class Unit : MonoBehaviour
     Vector3 oldMoveVector = Vector3.zero;
     Vector3 moveVector = Vector3.zero;
     bool updateAfterStart = true;
-
     void Start()
     {
         unitSelection = gameManager.GetComponent<UnitSelection>();
@@ -98,7 +96,7 @@ public class Unit : MonoBehaviour
         }
 
         // move unit
-        unitBody.velocity = moveVector * movingSpeedPixelPerSecond * pathFind.speedModifierGrid[rowCol[0], rowCol[1]];
+        unitBody.velocity = moveVector * movingSpeedPixelPerSecond * pathFind.cellsGrid[rowCol[0], rowCol[1]].SpeedModifier;
 
         if (moveVector == Vector3.zero || failsToMove >= 8)
         {
@@ -111,7 +109,7 @@ public class Unit : MonoBehaviour
         }
         else if (distFromLastRecordedPos <= minStopMovingRadius && moveVector != Vector3.zero)
         {
-            unitBody.velocity = oldMoveVector * movingSpeedPixelPerSecond * pathFind.speedModifierGrid[rowCol[0], rowCol[1]];
+            unitBody.velocity = oldMoveVector * movingSpeedPixelPerSecond * pathFind.cellsGrid[rowCol[0], rowCol[1]].SpeedModifier;
             failsToMove++;
         }
         else
@@ -152,7 +150,7 @@ public class Unit : MonoBehaviour
                 Vector3 position = pathFind.GetPosFromRowCol(newRow, newCol, 100);
                 if (Physics.Raycast(position, Vector3.down, out RaycastHit hit, Mathf.Infinity, 1 << gameObject.layer))
                 {
-                    pathFind.walkableGrid[newRow, newCol] = false;
+                    pathFind.cellsGrid[newRow, newCol].Walkable = false;
                 }
             }
         }
@@ -186,7 +184,7 @@ public class Unit : MonoBehaviour
                 {
                     if (shouldMove && pathFind.directionGridsDict[unitId][row, col] != Vector3.zero)
                     {
-                        Gizmos.DrawRay(pathFind.positionGrid[row, col], pathFind.directionGridsDict[unitId][row, col]);
+                        Gizmos.DrawRay(pathFind.cellsGrid[row, col].Position, pathFind.directionGridsDict[unitId][row, col]);
                     }
                 }
             }
