@@ -36,11 +36,9 @@ public class UnitCreation : MonoBehaviour
         unitScript.movingSpeedPixelPerSecond = 20;
         unitScript.selectedMaterial = selectedMaterial;
         unitScript.notSelectedMaterial = notSelectedMaterial;
-        unitScript.rotationAnglePerSec = 1440;
         unitScript.timeToRecordPos = 0.5f;
 
         Rigidbody unitRigidBody = unit.AddComponent<Rigidbody>();
-        unitRigidBody.constraints = RigidbodyConstraints.FreezeAll;
 
         CapsuleCollider unitCollider = unit.GetComponent<CapsuleCollider>();
         unitCollider.radius = 0.7f;

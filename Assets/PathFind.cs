@@ -13,14 +13,10 @@ public class PathFind : MonoBehaviour
     Transform map;
     public LayerMask groundLayerMask;
     public float stepSize;
-    public int rows;
-    public int cols;
+    private int rows;
+    private int cols;
     public Cell[,] cellsGrid;
-    public Vector3[,] positionGrid;
     Camera mainCam;
-    int[,] costGrid;
-    public bool[,] walkableGrid;
-    public float[,] speedModifierGrid;
     public Dictionary<int, Vector3[,]> directionGridsDict;
     readonly Dictionary<string, int> groundTagWeights = new();
     readonly Dictionary<string, float> speedModifiersFromTags = new();
@@ -31,6 +27,9 @@ public class PathFind : MonoBehaviour
     public bool drawGrid;
     public bool useAdvancedDirFunc;
 
+    public int Rows {get => rows;}
+    public int Cols {get => cols;}
+
     void Start()
     {
         mainObjects = gameObject.GetComponent<MainObjects>();
@@ -40,17 +39,15 @@ public class PathFind : MonoBehaviour
         rows = Mathf.RoundToInt(mapSize.z / stepSize);
         cols = Mathf.RoundToInt(mapSize.x / stepSize);
         cellsGrid = new Cell[rows, cols];
-        positionGrid = new Vector3[rows, cols];
-        walkableGrid = new bool[rows, cols];
-        costGrid = new int[rows, cols];
-        speedModifierGrid = new float[rows, cols];
         maxHightJump = Mathf.Tan(maxSlope * Mathf.PI / 180) * stepSize;
 
-        groundTagWeights.Add("Ground", 1);
-        groundTagWeights.Add("Water", 3);
+        groundTagWeights.Add("Ground", 2);
+        groundTagWeights.Add("Road", 1);
+        groundTagWeights.Add("Water", 4);
         groundTagWeights.Add("Unwalkable", 255);
 
         speedModifiersFromTags.Add("Ground", 1);
+        speedModifiersFromTags.Add("Road", 1.5f);
         speedModifiersFromTags.Add("Water", 0.6f);
         speedModifiersFromTags.Add("Unwalkable", 0);
 
@@ -156,32 +153,6 @@ public class PathFind : MonoBehaviour
         }
     }
 
-    void ReleseUnitFromWalkableGrid(GameObject unit)
-    {
-        int radiusToCheck = Mathf.RoundToInt(Mathf.Max(unit.transform.localScale.x, unit.transform.localScale.z) / 2) + 3;
-        for (int rowOffset = -radiusToCheck; rowOffset <= radiusToCheck; rowOffset++)
-        {
-            for (int colOffset = -radiusToCheck; colOffset <= radiusToCheck; colOffset++)
-            {
-                int[] rowCol = GetRowColFromPos(unit.transform.position);
-                int newRow = rowCol[0] + rowOffset;
-                int newCol = rowCol[1] + colOffset;
-                if (newRow >= 0 && newRow < rows && newCol >=0 && newCol < cols)
-                {
-                    Cell cell = cellsGrid[newRow, newCol];
-                    Vector3 position = GetPosFromRowCol(newRow, newCol, 100);
-                    if (Physics.Raycast(position, Vector3.down, out RaycastHit hit, Mathf.Infinity))
-                    {
-                        if (hit.transform.gameObject == unit && cell.Tag != "Unwalkable")
-                        {
-                            cell.Walkable = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     float[,] GenerateIntegrationGrid(int destCellRow, int destCellCol)
     {
         float[,] integrationGrid = new float[rows, cols];
@@ -241,11 +212,6 @@ public class PathFind : MonoBehaviour
 
     public void GenerateDirectionGrid(int destRow, int destCol, Vector3 position)
     {
-        foreach (KeyValuePair<int, GameObject> keyValUnit in selectedUnitsDictionary)
-        {
-            ReleseUnitFromWalkableGrid(keyValUnit.Value);
-        }
-
         int[] gridCorners = GetDirectionGridCorners(destRow, destCol);
         float[,] integrationGrid = GenerateIntegrationGrid(destRow, destCol);
         Vector3[,] directionGrid = new Vector3[rows, cols];

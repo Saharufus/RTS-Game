@@ -13,7 +13,6 @@ public class Unit : MonoBehaviour
     public GameObject gameManager;
     PathFind pathFind;
     public float movingSpeedPixelPerSecond;
-    public float rotationAnglePerSec;
     public Material selectedMaterial;
     public Material notSelectedMaterial;
     UnitSelection unitSelection;
@@ -31,7 +30,6 @@ public class Unit : MonoBehaviour
     int failsToMove = 0;
     Vector3 oldMoveVector = Vector3.zero;
     Vector3 moveVector = Vector3.zero;
-    bool updateAfterStart = true;
     void Start()
     {
         unitSelection = gameManager.GetComponent<UnitSelection>();
@@ -46,11 +44,6 @@ public class Unit : MonoBehaviour
 
     void Update()
     {
-        if (updateAfterStart)
-        {
-            updateAfterStart = false;
-            UpdateWalkableGridAfterStoped();
-        }
         unitIsSelected = unitSelection.selectedDict.ContainsValue(gameObject);
         if (unitIsSelected)
         {
@@ -105,9 +98,9 @@ public class Unit : MonoBehaviour
             unitBody.constraints = RigidbodyConstraints.FreezeRotation | RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezePositionZ;
             pathFind.directionGridsDict.Remove(unitId);
             failsToMove = 0;
-            UpdateWalkableGridAfterStoped();
+            moveVector = Vector3.zero;
         }
-        else if (distFromLastRecordedPos <= minStopMovingRadius && moveVector != Vector3.zero)
+        else if (distFromLastRecordedPos <= minStopMovingRadius)
         {
             unitBody.velocity = oldMoveVector * movingSpeedPixelPerSecond * pathFind.cellsGrid[rowCol[0], rowCol[1]].SpeedModifier;
             failsToMove++;
@@ -137,31 +130,12 @@ public class Unit : MonoBehaviour
         return vectorsToAdjust;
     }
 
-    void UpdateWalkableGridAfterStoped()
-    {
-        int radiusToCheck = Mathf.RoundToInt(Mathf.Max(transform.localScale.x, transform.localScale.z) / 2) + 1;
-        for (int rowOffset = -radiusToCheck; rowOffset <= radiusToCheck; rowOffset++)
-        {
-            for (int colOffset = -radiusToCheck; colOffset <= radiusToCheck; colOffset++)
-            {
-                int[] rowCol = pathFind.GetRowColFromPos(transform.position);
-                int newRow = rowCol[0] + rowOffset;
-                int newCol = rowCol[1] + colOffset;
-                Vector3 position = pathFind.GetPosFromRowCol(newRow, newCol, 100);
-                if (Physics.Raycast(position, Vector3.down, out RaycastHit hit, Mathf.Infinity, 1 << gameObject.layer))
-                {
-                    pathFind.cellsGrid[newRow, newCol].Walkable = false;
-                }
-            }
-        }
-    }
-
     void OnCollisionEnter(Collision collision)
     {
         if (collision.transform.tag == transform.tag)
         {
             Debug.Log("HI!!!");
-            unitBody.constraints = RigidbodyConstraints.FreezeRotation;
+            unitBody.constraints = RigidbodyConstraints.FreezeRotation | RigidbodyConstraints.FreezePositionY;
         }
     }
 
@@ -178,9 +152,9 @@ public class Unit : MonoBehaviour
     {
         if (drawDirections && gameStarted)
         {
-            for (int row = 0; row < pathFind.rows; row++)
+            for (int row = 0; row < pathFind.Rows; row++)
             {
-                for (int col = 0; col < pathFind.cols; col++)
+                for (int col = 0; col < pathFind.Cols; col++)
                 {
                     if (shouldMove && pathFind.directionGridsDict[unitId][row, col] != Vector3.zero)
                     {
