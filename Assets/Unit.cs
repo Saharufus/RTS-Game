@@ -81,7 +81,7 @@ public class Unit : MonoBehaviour
 
         unitBody.constraints = RigidbodyConstraints.FreezeRotation;
         int[] rowCol = pathFind.GetRowColFromPos(transform.position);
-        Vector3 newMoveVector = pathFind.directionGridsDict[unitId][rowCol[0], rowCol[1]];
+        Vector3 newMoveVector = GetMoveVector(rowCol[0], rowCol[1], pathFind.directionGridsDict[unitId]);//pathFind.directionGridsDict[unitId][rowCol[0], rowCol[1]];
         if (newMoveVector != moveVector)
         {
             oldMoveVector = moveVector;
@@ -112,22 +112,22 @@ public class Unit : MonoBehaviour
         }
     }
 
-    List<Vector3> GetFriendlyUnitDetectionAdjustments()
+    Vector3 GetMoveVector(int row, int col, Vector3[,] directionGrid)
     {
-        List<Vector3> vectorsToAdjust = new();
-        float minDistFromFriend = Mathf.Max(transform.localScale.x, transform.localScale.z);
-
-        for (int i = 0; i < 16; i++)
+        Vector3 moveVector = Vector3.zero;
+        for (int rowOffset = -1; rowOffset < 2; rowOffset++)
         {
-            Vector3 directionToCheck = Quaternion.Euler(0, 22.5f*i, 0) * Vector3.forward;
-            if (Physics.Raycast(transform.position + (minDistFromFriend/2 * directionToCheck), directionToCheck, out RaycastHit hit, 0.5f, 1 << gameObject.layer))
+            for (int colOffset = -1; colOffset < 2; colOffset++)
             {
-                float distFromFriend = (hit.point - transform.position).magnitude;
-                vectorsToAdjust.Add((transform.position - hit.point) * (minDistFromFriend / distFromFriend));
+                int newRow = row + rowOffset;
+                int newCol = col + colOffset;
+                if (newCol >= 0 && newCol < pathFind.Cols && newRow >= 0 && newRow <= pathFind.Rows && pathFind.cellsGrid[newRow, newCol].Walkable)
+                {
+                    moveVector += directionGrid[newRow, newCol];
+                }
             }
         }
-
-        return vectorsToAdjust;
+        return moveVector.normalized;
     }
 
     void OnCollisionEnter(Collision collision)

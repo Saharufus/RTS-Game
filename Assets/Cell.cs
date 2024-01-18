@@ -44,6 +44,7 @@ public class Cell
     }
     public int Cost
     {
+        set => cost = value;
         get => cost;
     }
     public float SpeedModifier

@@ -5,6 +5,7 @@ using System.Data;
 using TMPro;
 using Unity.VisualScripting;
 using UnityEngine;
+using Configs;
 
 public class PathFind : MonoBehaviour
 {
@@ -23,9 +24,7 @@ public class PathFind : MonoBehaviour
     public float maxSlope;
     float maxHightJump;
     public int extraPathFindBlocks;
-    public int cellsToConvolute;
     public bool drawGrid;
-    public bool useAdvancedDirFunc;
 
     public int Rows {get => rows;}
     public int Cols {get => cols;}
@@ -44,7 +43,7 @@ public class PathFind : MonoBehaviour
         groundTagWeights.Add("Ground", 2);
         groundTagWeights.Add("Road", 1);
         groundTagWeights.Add("Water", 4);
-        groundTagWeights.Add("Unwalkable", 255);
+        groundTagWeights.Add("Unwalkable", 15);
 
         speedModifiersFromTags.Add("Ground", 1);
         speedModifiersFromTags.Add("Road", 1.5f);
@@ -62,29 +61,16 @@ public class PathFind : MonoBehaviour
         if (Input.GetMouseButtonUp(1))
         {
             Ray cameraToScreenRay = mainCam.ScreenPointToRay(Input.mousePosition);
-            RaycastHit[] allHits = Physics.RaycastAll(cameraToScreenRay);
             Vector3 newPos = Vector3.zero;
-            float highestCollHitY = -Mathf.Infinity;
-            bool destinationFound = false;
-            foreach (RaycastHit hit in allHits)
-            {
-                if (hit.transform.tag != "Unwalkable" && hit.point.y > highestCollHitY)
-                {
-                    newPos = hit.point;
-                    highestCollHitY = newPos.y;
-                    destinationFound = true;
-                }
-                else if (hit.transform.tag == "Unwalkable")
-                {
-                    destinationFound = false;
-                    break;
-                }
-            }
 
-            if (destinationFound)
+            if (Physics.Raycast(cameraToScreenRay, out RaycastHit hit, Mathf.Infinity))
             {
-                int[] rowCol = GetRowColFromPos(newPos);
-                GenerateDirectionGrid(rowCol[0], rowCol[1], newPos);
+                int[] rowCol = GetRowColFromPos(hit.point);
+                Cell destCell = cellsGrid[rowCol[0], rowCol[1]];
+                if (destCell.Walkable)
+                {
+                    GenerateDirectionGrid(destCell);
+                }
             }
         }
     }
@@ -137,23 +123,35 @@ public class PathFind : MonoBehaviour
 
         foreach (Cell cell in cellsGrid)
         {
-            if (cell.Tag == "Unwalkable")
+            for (int rowOffset = -1; rowOffset <= 1; rowOffset++)
             {
-                for (int rowOffset = -1; rowOffset <= 1; rowOffset++)
+                for (int colOffset = -1; colOffset <= 1; colOffset++)
                 {
-                    for (int colOffset = -1; colOffset <= 1; colOffset++)
+                    int newRow = cell.Row + rowOffset;
+                    int newCol = cell.Col + colOffset;
+                    if ((rowOffset != 0 || colOffset != 0) && newRow >= 0 && newRow < rows && newCol >=0 && newCol < cols)
                     {
-                        int newRow = cell.Row + rowOffset;
-                        int newCol = cell.Col + colOffset;
-                        if (newRow >= 0 && newRow < rows && newCol >=0 && newCol < cols)
-                        cellsGrid[cell.Row + rowOffset, cell.Col + colOffset].Walkable = false;
+                        Cell neighborCell = cellsGrid[cell.Row + rowOffset, cell.Col + colOffset];
+
+                        if (cell.Tag == "Unwalkable")
+                        {
+                            neighborCell.Walkable = false;
+                            neighborCell.Cost = groundTagWeights["Unwalkable"];
+                        }
+
+                        float dy = Mathf.Abs(cell.Position.y - neighborCell.Position.y);
+                        if (dy > maxHightJump)
+                        {
+                            cell.Walkable = false;
+                            cell.Cost = groundTagWeights["Unwalkable"];
+                        }
                     }
                 }
             }
         }
     }
 
-    float[,] GenerateIntegrationGrid(int destCellRow, int destCellCol)
+    float[,] GenerateIntegrationGrid(Cell destCell, int minRow, int maxRow, int minCol, int maxCol)
     {
         float[,] integrationGrid = new float[rows, cols];
         for (int row = 0; row < rows; row++)
@@ -165,8 +163,8 @@ public class PathFind : MonoBehaviour
         }
 
         List<Cell> cellsToCheck = new();
-        integrationGrid[destCellRow, destCellCol] = 0;
-        cellsToCheck.Add(cellsGrid[destCellRow, destCellCol]);
+        integrationGrid[destCell.Row, destCell.Col] = 0;
+        cellsToCheck.Add(cellsGrid[destCell.Row, destCell.Col]);
 
         while (cellsToCheck.Count > 0)
         {
@@ -174,7 +172,7 @@ public class PathFind : MonoBehaviour
             foreach (Cell cell in cellsToCheck)
             {
                 float integrationValue = integrationGrid[cell.Row, cell.Col];
-                IntegrateNeighbors(cell, integrationValue, integrationGrid, newCellsToCheck);
+                IntegrateNeighbors(cell, integrationValue, integrationGrid, newCellsToCheck, minRow, maxRow, minCol, maxCol);
             }
             cellsToCheck = newCellsToCheck;
         }
@@ -182,7 +180,7 @@ public class PathFind : MonoBehaviour
         return integrationGrid;
     }
 
-    void IntegrateNeighbors(Cell cell, float integrationValue, float[,] integrationGrid, List<Cell> cellsToCheck)
+    void IntegrateNeighbors(Cell cell, float integrationValue, float[,] integrationGrid, List<Cell> cellsToCheck, int minRow, int maxRow, int minCol, int maxCol)
     {
         for (int rowOffset = -1; rowOffset < 2; rowOffset++)
         {
@@ -190,7 +188,7 @@ public class PathFind : MonoBehaviour
             {
                 int newRow = cell.Row + rowOffset;
                 int newCol = cell.Col + colOffset;
-                if (newCol >= 0 && newCol < cols && newRow >= 0 && newRow < rows && (rowOffset != 0 || colOffset != 0)) // in grid bounds and not the cell itself
+                if (newCol >= minCol && newCol <= maxCol && newRow >= minRow && newRow <= maxRow && (rowOffset != 0 || colOffset != 0)) // in grid bounds and not the cell itself
                 {
                     Cell neighborCell = cellsGrid[newRow, newCol];
                     float distMod = 1;
@@ -199,44 +197,41 @@ public class PathFind : MonoBehaviour
                         distMod = 1.4f;
                     }
                     float newIntegrationValue = integrationValue + (neighborCell.Cost * distMod);
-                    float dy = Mathf.Abs(cell.Position.y - neighborCell.Position.y);
-                    if (newIntegrationValue < integrationGrid[newRow, newCol] && dy <= maxHightJump)
+                    if (newIntegrationValue < integrationGrid[newRow, newCol])
                     {
                         integrationGrid[newRow, newCol] = newIntegrationValue;
-                        cellsToCheck.Add(neighborCell);
+                        if (neighborCell.Walkable)
+                        {
+                            cellsToCheck.Add(neighborCell);
+                        }
                     }
                 }
             }
         }
     }
 
-    public void GenerateDirectionGrid(int destRow, int destCol, Vector3 position)
+    public void GenerateDirectionGrid(Cell destCell)
     {
-        int[] gridCorners = GetDirectionGridCorners(destRow, destCol);
-        float[,] integrationGrid = GenerateIntegrationGrid(destRow, destCol);
-        Vector3[,] directionGrid = new Vector3[rows, cols];
-
+        int[] gridCorners = GetDirectionGridCorners(destCell);
         int minRow = gridCorners[0];
         int maxRow = gridCorners[1];
         int minCol = gridCorners[2];
         int maxCol = gridCorners[3];
 
-        for (int row = 0; row < cols; row++)
+        float[,] integrationGrid = GenerateIntegrationGrid(destCell, minRow, maxRow, minCol, maxCol);
+
+        Vector3[,] directionGrid = new Vector3[rows, cols];
+
+        for (int row = 0; row < rows; row++)
         {
             for (int col = 0; col < cols; col++)
             {
                 if (row >= minRow && row <= maxRow && col >= minCol && col <= maxCol)
                 {
-                    if (integrationGrid[row, col] < 2000)
+                    Cell cell = cellsGrid[row, col];
+                    if (cell.Tag != "Unwalkable")
                     {
-                        if (useAdvancedDirFunc)
-                        {
-                            directionGrid[row, col] = GetDirectionAdvanced(cellsGrid[row, col], integrationGrid);
-                        }
-                        else
-                        {
-                            directionGrid[row, col] = GetDirection(cellsGrid[row, col], integrationGrid);
-                        }
+                        directionGrid[row, col] = GetDirection(cell, integrationGrid, directionGrid);
                     }
                 }
                 else
@@ -259,12 +254,12 @@ public class PathFind : MonoBehaviour
         }
     }
 
-    int[] GetDirectionGridCorners(int destRow, int destCol)
+    int[] GetDirectionGridCorners(Cell destCell)
     {
-        int maxRow = destRow;
-        int minRow = destRow;
-        int maxCol = destCol;
-        int minCol = destCol;
+        int maxRow = destCell.Row;
+        int minRow = destCell.Row;
+        int maxCol = destCell.Col;
+        int minCol = destCell.Col;
 
         foreach (KeyValuePair<int, GameObject> keyValUnit in selectedUnitsDictionary)
         {
@@ -286,47 +281,7 @@ public class PathFind : MonoBehaviour
         return corners;
     }
 
-    Vector3 GetDirection(Cell cell, float[,] integrationGrid)
-    {
-        Vector3 direction = Vector3.zero;
-        if (integrationGrid[cell.Row, cell.Col] == 0)
-        {
-            return direction;
-        }
-        float bestDirectionVal = 2047;
-
-        for (int rowOffset = -1; rowOffset < 2; rowOffset++)
-        {
-            for (int colOffset = -1; colOffset < 2; colOffset++)
-            {
-                int newRow = cell.Row + rowOffset;
-                int newCol = cell.Col + colOffset;
-                if (newCol >= 0 && newCol < cols && newRow >= 0 && newRow < rows)
-                {
-                    float dy = Mathf.Abs(cell.Position.y - cellsGrid[newRow, newCol].Position.y);
-                    if ((rowOffset != 0 || colOffset != 0) && integrationGrid[newRow, newCol] < bestDirectionVal && dy < maxHightJump)
-                    {
-                        bestDirectionVal = integrationGrid[newRow, newCol];
-                        direction = new Vector3(colOffset, 0, -rowOffset).normalized;
-                        if (rowOffset != 0 && integrationGrid[newRow, cell.Col] > 2000)
-                        {
-                            direction.z = 0;
-                            direction.Normalize();
-                        }
-                        if (colOffset != 0 && integrationGrid[cell.Row, newCol] > 2000)
-                        {
-                            direction.x = 0;
-                            direction.Normalize();
-                        }
-                    }
-                }
-            }
-        }
-        direction.y = 0;
-        return direction;
-    }
-
-    Vector3 GetDirectionAdvanced(Cell cell, float[,] integrationGrid)
+    Vector3 GetDirection(Cell cell, float[,] integrationGrid, Vector3[,] directionGrid)
     {
         Vector3 direction = Vector3.zero;
         if (integrationGrid[cell.Row, cell.Col] == 0)
@@ -334,63 +289,15 @@ public class PathFind : MonoBehaviour
             return direction;
         }
 
-        int negativeRowsToConvolute = -cellsToConvolute;
-        int positiveRowsToConvolute = cellsToConvolute;
-        int negativeColsToConvolute = -cellsToConvolute;
-        int positiveColsToConvolute = cellsToConvolute;
-
-        for (int rowOffset = -1; rowOffset >= -cellsToConvolute; rowOffset--)
+        for (int rowOffset = -PathFindConfigs.cellsToConvolute; rowOffset <= PathFindConfigs.cellsToConvolute; rowOffset++)
         {
-            int newRow = cell.Row + rowOffset;
-            float dy = Mathf.Abs(cell.Position.y - cellsGrid[newRow, cell.Col].Position.y);
-            if (dy >= maxHightJump)
-            {
-                negativeRowsToConvolute = rowOffset + 1;
-                break;
-            }
-        }
-        for (int rowOffset = 1; rowOffset <= cellsToConvolute; rowOffset++)
-        {
-            int newRow = cell.Row + rowOffset;
-            float dy = Mathf.Abs(cell.Position.y - cellsGrid[newRow, cell.Col].Position.y);
-            if (dy >= maxHightJump)
-            {
-                positiveRowsToConvolute = rowOffset - 1;
-                break;
-            }
-        }
-        for (int colOffset = -1; colOffset >= -cellsToConvolute; colOffset--)
-        {
-            int newCol = cell.Col + colOffset;
-            float dy = Mathf.Abs(cell.Position.y - cellsGrid[cell.Row, newCol].Position.y);
-            if (dy >= maxHightJump)
-            {
-                negativeColsToConvolute = colOffset + 1;
-                break;
-            }
-        }
-        for (int colOffset = 1; colOffset <= cellsToConvolute; colOffset++)
-        {
-            int newCol = cell.Col + colOffset;
-            float dy = Mathf.Abs(cell.Position.y - cellsGrid[cell.Row, newCol].Position.y);
-            if (dy >= maxHightJump)
-            {
-                positiveColsToConvolute = colOffset - 1;
-                break;
-            }
-        }
-
-        for (int rowOffset = negativeRowsToConvolute; rowOffset <= positiveRowsToConvolute; rowOffset++)
-        {
-            for (int colOffset = negativeColsToConvolute; colOffset <= positiveColsToConvolute; colOffset++)
+            for (int colOffset = -PathFindConfigs.cellsToConvolute; colOffset <= PathFindConfigs.cellsToConvolute; colOffset++)
             {
                 int newRow = cell.Row + rowOffset;
                 int newCol = cell.Col + colOffset;
-                if (newCol >= 0 && newCol < cols && newRow >= 0 && newRow < rows)
+                if (newCol >= 0 && newCol < cols && newRow >= 0 && newRow < rows && (rowOffset != 0 || colOffset != 0))
                 {
-                    Cell neighborCell = cellsGrid[newRow, newCol];
-                    float dy = Mathf.Abs(cell.Position.y - neighborCell.Position.y);
-                    if ((rowOffset != 0 || colOffset != 0) && (dy <= maxHightJump || !neighborCell.Walkable) && cell.SpeedModifier == neighborCell.SpeedModifier)
+                    if (integrationGrid[newRow, newCol] < Mathf.Infinity)
                     {
                         if (integrationGrid[newRow, newCol] == 0 && (Mathf.Abs(colOffset) == 1 || Mathf.Abs(rowOffset) == 1))
                         {
@@ -417,7 +324,33 @@ public class PathFind : MonoBehaviour
         }
 
         direction.Normalize();
+
+        if (ShouldTurn90Deg(cell.Row, cell.Col, direction, directionGrid))
+        {
+            direction = Quaternion.Euler(0, 90, 0) * direction;
+        }
+
         return direction;
+    }
+
+    bool ShouldTurn90Deg(int row, int col, Vector3 direction, Vector3[,] directionGrid)
+    {
+        if (col - 1 > 0 && row - 1 > 0)
+        {
+            if (direction == -directionGrid[row - 1, col])
+            {
+                return true;
+            }
+            if (direction == -directionGrid[row, col - 1])
+            {
+                return true;
+            }
+            if (direction == -directionGrid[row - 1, col - 1])
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     void OnDrawGizmos()
